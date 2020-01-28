@@ -6,6 +6,10 @@ const path = require('path');
 const fs = require('fs');
 const po = require('pofile');
 
+function escapeRegExp(string) {
+  return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
 /**
  * transform a set of gettext translation files into a JavaScript and JSON consumable by VueI18n.prototype.getChoiceIndex and messages
  * @param options {
@@ -26,6 +30,7 @@ const po = require('pofile');
  *   }
  * }
  */
+
 async function main(options) {
   if (!options || !options.po) {
     throw new Error('missing input filename');
@@ -65,9 +70,9 @@ async function main(options) {
         value =  (item.msgstr.some(str => str !== '') ?
           item.msgstr.join(' | ') :
           item.msgid + ' | ' + item.msgid_plural)
-          .replace(/%s/g, '{n}');
+          .replace(/%d/g, '{n}');
       }
-      messages[item.msgctxt || item.msgid] = value;
+      messages[item.msgid] = value;
     });
   }
 
@@ -155,10 +160,10 @@ function filterByWhitelist(whitelistGlob, pos) {
   // preprocess the messages from *.po so that we can traverse the disk with whitelist files in one go
   for (let lang in pos) {
     pos[lang].messages.forEach(m => {
-      if (removalCandidates.has(m.msgctxt)) {
+      if (removalCandidates.has(m.msgid)) {
         return;
       }
-      if (!m.msgctxt) {
+      if (!m.msgid) {
         let meaningfulCopy = {};
         for (let k in m) {
           if (!!m[k] && (typeof m[k] !== 'object' || Object.keys(m[k]).length > 0))
@@ -168,32 +173,11 @@ function filterByWhitelist(whitelistGlob, pos) {
         return;
       }
 
-      removalCandidates.add(m.msgctxt);
+      removalCandidates.add(m.msgid);
 
-      let reEntry = { msgctxt: m.msgctxt };
+      let reEntry = { msgid: m.msgid };
 
-      if (m.msgctxt.indexOf('.') == -1) {
-        reEntry.re = new RegExp('[\'"`]' + m.msgctxt + '[\'"`]');
-      }
-      else {
-        // either one of the components ends with .', .", .` or .$ or the full key matches
-        // `namespace + '.rest.of.the.path'` will thus fail
-        // also, `foo.${something}.bar` will incorrectly let foo.xxx.yyy in
-        const components = m.msgctxt.split('.');
-        const reStr = '([\'"`]' + components.slice(1)
-          .reduce((prefixes, val, idx) => {  // reduce returns an array of strings [ c0, c0[.]c1, c0[.]c1[.]c2, ... ]
-            prefixes.push(prefixes[idx] + '[.]' + val);  // take the last entry in the array and create a new one, one component longer
-            return prefixes;
-          }, [ components[0] ])
-          .join('[.][\'"`$])|([\'"`]') + '[\'"`])';  // join the prefixes returned from reduce
-                                                     // as alternatives <some quotation>c0.<some quotation> || <some quotation>c0.c1.<some quotation> || ... || <full key>
-
-        // example: "foo.bar.baz" turns into
-        // /(['"`]foo[.]['"`$])|(['"`]foo[.]bar[.]['"`$])|(['"`]foo[.]bar[.]baz['"`])/
-        // or, nicer
-        // ( ['"`]foo[.]['"`$] )  |  ( ['"`]foo[.]bar[.]['"`$] )  |  ( ['"`]foo[.]bar[.]baz['"`] )
-        reEntry.re = new RegExp(reStr);
-      }
+      reEntry.re = new RegExp('[\'"`]' + escapeRegExp(m.msgid) + '[\'"`]');
 
       removalRes.add(reEntry);
     });
@@ -213,7 +197,7 @@ function filterByWhitelist(whitelistGlob, pos) {
 
       removalRes.forEach(reEntry => {
         if (reEntry.re.test(text)) {  // as soon as a key is found at least once, we don't need to test any more
-          removalCandidates.delete(reEntry.msgctxt);
+          removalCandidates.delete(reEntry.msgid);
           removalRes.delete(reEntry);
         }
       });
@@ -230,7 +214,7 @@ function filterByWhitelist(whitelistGlob, pos) {
   }
 
   for (let lang in pos) {
-    pos[lang].messages = pos[lang].messages.filter(m => !removalCandidates.has(m.msgctxt));
+    pos[lang].messages = pos[lang].messages.filter(m => !removalCandidates.has(m.msgid));
   }
 }
 
